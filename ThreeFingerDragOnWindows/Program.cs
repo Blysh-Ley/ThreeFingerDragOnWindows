@@ -1,5 +1,8 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
@@ -12,42 +15,75 @@ namespace ThreeFingerDragOnWindows;
 
 public class Program {
     [STAThread]
-    static Task<int> Main(string[] args){
-        WinRT.ComWrappersSupport.InitializeComWrappers();
+    static async Task<int> Main(string[] args){
+        try{
+            WinRT.ComWrappersSupport.InitializeComWrappers();
 
-        (AppInstance existingInstance, bool existingInstanceIsAdmin) = FindExistingInstance();
+            (AppInstance existingInstance, bool existingInstanceIsAdmin) = FindExistingInstance();
 
-        if(existingInstance != null){
-            if(Utils.IsAppRunningAsAdministrator() && !existingInstanceIsAdmin && TerminateOldInstance(existingInstance.ProcessId)){
-                Logger.Log("Unelevated instance found and killed. Starting the app");
-                StartApp();
+            if(existingInstance != null){
+                if(Utils.IsAppRunningAsAdministrator() && !existingInstanceIsAdmin && TerminateOldInstance(existingInstance.ProcessId)){
+                    Logger.Log("Unelevated instance found and killed. Starting the app");
+                    StartApp(args);
+                } else{
+                    Logger.Log("Instance found, redirecting activation.");
+                    await RedirectActivation(existingInstance);
+                }
             } else{
-                Logger.Log("Instance found, redirecting activation.");
-                RedirectActivation(existingInstance);
+                Logger.Log("No instance found, starting the app.");
+                StartApp(args);
             }
-        } else{
-            Logger.Log("No instance found, starting the app.");
-            StartApp();
+
+            return 0;
+        } catch(Exception ex){
+            ReportFatalStartupError(ex);
+            return 1;
         }
-        return Task.FromResult(0);
     }
 
-    private static void RedirectActivation(AppInstance instance){
+    private static async Task RedirectActivation(AppInstance instance){
         AppActivationArguments args = AppInstance.GetCurrent().GetActivatedEventArgs();
-        _ = instance.RedirectActivationToAsync(args);
+        await instance.RedirectActivationToAsync(args);
     }
 
-    private static void StartApp(){
+    private static void StartApp(string[] args){
         AppInstance.FindOrRegisterForKey("ThreeFingerDragOnWindows-SingleInstance-" + (Utils.IsAppRunningAsAdministrator() ? "Admin" : "User"));
         AppInstance.GetCurrent().Activated += OnActivated;
+
+        bool openSettingsOnLaunch = !args.Any(arg =>
+            arg.Equals("--background", StringComparison.OrdinalIgnoreCase));
 
         Application.Start((p) => {
             var context = new DispatcherQueueSynchronizationContext(
                 DispatcherQueue.GetForCurrentThread());
             SynchronizationContext.SetSynchronizationContext(context);
-            new App();
+            new App(openSettingsOnLaunch);
         });
     }
+
+    internal static void ReportFatalStartupError(Exception exception){
+        string message = exception.ToString();
+
+        try{
+            string directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ThreeFingerDragOnWindows");
+            Directory.CreateDirectory(directory);
+
+            string logPath = Path.Combine(directory, "startup-error.log");
+            File.AppendAllText(
+                logPath,
+                $"[{DateTimeOffset.Now:O}] Fatal startup error{Environment.NewLine}{message}{Environment.NewLine}{Environment.NewLine}");
+            message = $"ThreeFingerDragOnWindows could not start.\n\nDetails were saved to:\n{logPath}\n\n{exception.Message}";
+        } catch{
+            message = $"ThreeFingerDragOnWindows could not start.\n\n{message}";
+        }
+
+        MessageBox(IntPtr.Zero, message, "ThreeFingerDragOnWindows startup error", 0x00000010);
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
 
     private static (AppInstance, bool) FindExistingInstance(){
         foreach(AppInstance appInstance in AppInstance.GetInstances()){

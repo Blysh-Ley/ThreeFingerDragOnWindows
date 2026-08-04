@@ -3,12 +3,15 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using System.Text;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
 namespace ThreeFingerDragOnWindows.utils;
 
 class Utils {
+    private const int AppModelErrorNoPackage = 15700;
+
     public static void runOnMainThreadAfter(int ms, Action action){
         runOnMainThreadAfter(ms, DispatcherQueue.GetForCurrentThread(), action);
     }
@@ -32,6 +35,12 @@ class Utils {
         var identity = new WindowsPrincipal(WindowsIdentity.GetCurrent());
         return identity.IsInRole(WindowsBuiltInRole.Administrator);
     }
+
+    public static bool HasPackageIdentity(){
+        int packageFullNameLength = 0;
+        int result = GetCurrentPackageFullName(ref packageFullNameLength, null);
+        return result != AppModelErrorNoPackage;
+    }
     
     
     public static string GetElevatorPath(){
@@ -47,4 +56,9 @@ class Utils {
         if (dir == null) throw new Exception("Could not get the directory of the current assembly.");
         return Path.Combine(dir.FullName, "ThreeFingerDragOnWindows.exe");
     }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetCurrentPackageFullName(
+        ref int packageFullNameLength,
+        StringBuilder packageFullName);
 }

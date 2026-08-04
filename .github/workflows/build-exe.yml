@@ -2,6 +2,7 @@ name: Build Windows EXE
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches:
       - main
@@ -19,8 +20,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Restore dependencies
-        run: dotnet restore .\ThreeFingerDragOnWindows.sln
+      - name: Restore unpackaged win-x64 dependencies
+        run: |
+          dotnet restore `
+            .\ThreeFingerDragOnWindows\ThreeFingerDragOnWindows.csproj `
+            --runtime win-x64 `
+            -p:Platform=x64 `
+            -p:UnpackagedBuild=true
 
       - name: Publish win-x64 application
         shell: pwsh
@@ -30,14 +36,10 @@ jobs:
             --configuration Release `
             --runtime win-x64 `
             --self-contained true `
+            --no-restore `
             --output .\publish\win-x64 `
             -p:Platform=x64 `
-            -p:WindowsPackageType=None `
-            -p:EnableMsixTooling=false `
-            -p:WindowsAppSDKSelfContained=true `
-            -p:PublishSingleFile=false `
-            -p:AppxPackageSigningEnabled=false `
-            -p:GenerateAppxPackageOnBuild=false
+            -p:UnpackagedBuild=true
 
       - name: Ensure elevator EXE exists
         shell: pwsh
@@ -59,6 +61,87 @@ jobs:
 
           if (!(Test-Path $elevator)) {
             throw "Elevator EXE was not generated."
+          }
+
+          $requiredPublishedFiles = @(
+            ".\publish\win-x64\Microsoft.ui.xaml.dll",
+            ".\publish\win-x64\Microsoft.WindowsAppRuntime.Bootstrap.dll",
+            ".\publish\win-x64\Assets\icon.ico"
+          )
+
+          foreach ($requiredFile in $requiredPublishedFiles) {
+            if (!(Test-Path $requiredFile)) {
+              throw "Required published file is missing: $requiredFile"
+            }
+          }
+
+      - name: Smoke test published EXE
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path ".\publish\win-x64\ThreeFingerDragOnWindows.exe"
+          $publishDirectory = Split-Path $exe
+          $errorLog = Join-Path $env:LOCALAPPDATA "ThreeFingerDragOnWindows\startup-error.log"
+          $startedAt = Get-Date
+
+          if (Test-Path $errorLog) {
+            Remove-Item $errorLog -Force
+          }
+
+          function Write-StartupDiagnostics {
+            if (Test-Path $errorLog) {
+              Get-Content $errorLog
+            }
+
+            Get-WinEvent `
+              -FilterHashtable @{ LogName = "Application"; StartTime = $startedAt; Level = 2 } `
+              -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -like "*ThreeFingerDragOnWindows*" } |
+              Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+              Format-List
+          }
+
+          $process = Start-Process `
+            -FilePath $exe `
+            -ArgumentList "--smoke-test" `
+            -WorkingDirectory $publishDirectory `
+            -PassThru
+
+          try {
+            $deadline = (Get-Date).AddSeconds(30)
+
+            do {
+              Start-Sleep -Milliseconds 500
+              $process.Refresh()
+
+              if ($process.HasExited) {
+                Write-StartupDiagnostics
+                throw "Published EXE exited during startup with code $($process.ExitCode)."
+              }
+            } while ((Get-Date) -lt $deadline -and $process.MainWindowHandle -eq 0)
+
+            if ($process.MainWindowHandle -eq 0) {
+              Write-StartupDiagnostics
+              throw "Published EXE started but did not create a visible settings window."
+            }
+
+            # HandlerWindow and its tray icon are initialized three seconds after
+            # the settings window, so keep the process alive through that path.
+            Start-Sleep -Seconds 5
+            $process.Refresh()
+
+            if ($process.HasExited) {
+              Write-StartupDiagnostics
+              throw "Published EXE exited while initializing background services with code $($process.ExitCode)."
+            }
+
+            if (Test-Path $errorLog) {
+              Write-StartupDiagnostics
+              throw "Published EXE reported a fatal startup error."
+            }
+          } finally {
+            if (!$process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
           }
 
       - name: Create ZIP

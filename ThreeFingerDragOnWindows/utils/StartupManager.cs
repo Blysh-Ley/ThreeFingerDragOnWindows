@@ -3,11 +3,14 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel;
+using Microsoft.Win32;
 using Microsoft.Win32.TaskScheduler;
 
 namespace ThreeFingerDragOnWindows.utils; 
 
 public static class StartupManager {
+    private const string RegistryRunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RegistryRunValue = "ThreeFingerDragOnWindows";
 
 
     public static void EnableElevatedStartup(){
@@ -33,7 +36,7 @@ public static class StartupManager {
         LogonTrigger logonTrigger = new LogonTrigger();
         taskDefinition.Triggers.Add(logonTrigger);
 
-        ExecAction execAction = new ExecAction(Utils.GetAppPath(), "");
+        ExecAction execAction = new ExecAction(Utils.GetAppPath(), "--background");
         taskDefinition.Actions.Add(execAction);
 
         folder.RegisterTaskDefinition(
@@ -60,6 +63,12 @@ public static class StartupManager {
     
     public static async Task<bool> EnableUnelevatedStartup(){
         Logger.Log("Enabling unelevated startup task...");
+
+        if(!Utils.HasPackageIdentity()){
+            using RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryRunKey);
+            key.SetValue(RegistryRunValue, $"\"{Utils.GetAppPath()}\" --background");
+            return true;
+        }
         
         StartupTask startupTask = await StartupTask.GetAsync("ThreeFingerDragOnWindows");
         startupTask.Disable();
@@ -76,11 +85,25 @@ public static class StartupManager {
     }
     public static async Task<bool> DisableUnelevatedStartup(){
         Logger.Log("Disabling unelevated startup task...");
+
+        if(!Utils.HasPackageIdentity()){
+            using RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryRunKey);
+            key.DeleteValue(RegistryRunValue, false);
+            return true;
+        }
+
         StartupTask startupTask = await StartupTask.GetAsync("ThreeFingerDragOnWindows");
         startupTask.Disable();
         return startupTask.State is StartupTaskState.Disabled or StartupTaskState.DisabledByUser or StartupTaskState.DisabledByPolicy;
     }
     public static async Task<StartupTaskState> GetUnelevatedStartupStatus(){
+        if(!Utils.HasPackageIdentity()){
+            using RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryRunKey);
+            return key?.GetValue(RegistryRunValue) is string
+                ? StartupTaskState.Enabled
+                : StartupTaskState.Disabled;
+        }
+
         StartupTask startupTask = await StartupTask.GetAsync("ThreeFingerDragOnWindows");
         return startupTask.State;
     }
