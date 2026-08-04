@@ -25,7 +25,7 @@
     <GenerateTemporaryStoreCertificate>True</GenerateTemporaryStoreCertificate>
     <!--        <PackageCertificateKeyFile>ThreeFingerDragOnWindows.pfx</PackageCertificateKeyFile>-->
     <!--        <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>-->
-    <defineconstants>DISABLE_XAML_GENERATED_MAIN</defineconstants>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
     <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
     <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
@@ -35,6 +35,24 @@
     <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
     <AppxPackageSigningEnabled>False</AppxPackageSigningEnabled>
     <AppxBundlePlatforms>x86|x64|arm64</AppxBundlePlatforms>
+  </PropertyGroup>
+  <!--
+      Keep the normal MSIX project configuration intact, but evaluate restore,
+      XAML compilation and publish as an unpackaged app when the portable EXE
+      workflow opts in. Setting these properties only on `dotnet publish` after
+      a packaged restore can omit this application's generated PRI resources.
+  -->
+  <PropertyGroup Condition="'$(UnpackagedBuild)' == 'true'">
+    <AppxPackage>false</AppxPackage>
+    <WindowsPackageType>None</WindowsPackageType>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <WindowsAppSdkUndockedRegFreeWinRTInitialize>true</WindowsAppSdkUndockedRegFreeWinRTInitialize>
+    <WindowsAppSdkDeploymentManagerInitialize>false</WindowsAppSdkDeploymentManagerInitialize>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <GenerateAppxPackageOnBuild>false</GenerateAppxPackageOnBuild>
   </PropertyGroup>
   <ItemGroup>
     <Content Remove="Assets\logo-44.altform-lightunplated_targetsize-16.png" />

@@ -2,6 +2,7 @@ name: Build Windows EXE
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches:
       - main
@@ -19,8 +20,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Restore dependencies
-        run: dotnet restore .\ThreeFingerDragOnWindows.sln
+      - name: Restore unpackaged win-x64 dependencies
+        run: |
+          dotnet restore `
+            .\ThreeFingerDragOnWindows\ThreeFingerDragOnWindows.csproj `
+            --runtime win-x64 `
+            -p:Platform=x64 `
+            -p:UnpackagedBuild=true
 
       - name: Publish win-x64 application
         shell: pwsh
@@ -30,14 +36,10 @@ jobs:
             --configuration Release `
             --runtime win-x64 `
             --self-contained true `
+            --no-restore `
             --output .\publish\win-x64 `
             -p:Platform=x64 `
-            -p:WindowsPackageType=None `
-            -p:EnableMsixTooling=false `
-            -p:WindowsAppSDKSelfContained=true `
-            -p:PublishSingleFile=false `
-            -p:AppxPackageSigningEnabled=false `
-            -p:GenerateAppxPackageOnBuild=false
+            -p:UnpackagedBuild=true
 
       - name: Ensure elevator EXE exists
         shell: pwsh
@@ -59,6 +61,26 @@ jobs:
 
           if (!(Test-Path $elevator)) {
             throw "Elevator EXE was not generated."
+          }
+
+          $requiredRuntimeFiles = @(
+            ".\publish\win-x64\Microsoft.ui.xaml.dll",
+            ".\publish\win-x64\Microsoft.WindowsAppRuntime.Bootstrap.dll"
+          )
+
+          foreach ($requiredFile in $requiredRuntimeFiles) {
+            if (!(Test-Path $requiredFile)) {
+              throw "Required Windows App SDK runtime file is missing: $requiredFile"
+            }
+          }
+
+          $appPriFiles = @(
+            ".\publish\win-x64\resources.pri",
+            ".\publish\win-x64\ThreeFingerDragOnWindows.pri"
+          ) | Where-Object { Test-Path $_ }
+
+          if ($appPriFiles.Count -eq 0) {
+            throw "The app PRI/XAML resources are missing. Restore and publish must both use UnpackagedBuild=true."
           }
 
       - name: Create ZIP

@@ -19,8 +19,9 @@ public partial class App {
 
     public HandlerWindow HandlerWindow;
 
-    public App(){
+    public App(bool openSettingsOnLaunch = false){
         Instance = this;
+        UnhandledException += (_, args) => Program.ReportFatalStartupError(args.Exception);
         DispatcherQueue = DispatcherQueue.GetForCurrentThread();
         SettingsData = SettingsData.load();
 
@@ -58,8 +59,8 @@ public partial class App {
             SettingsData.save();
         }
 
-        if(SettingsData.DidVersionChanged || openOtherSettings){
-            Logger.Log("First run detected, or StartupAction not NONE.");
+        if(SettingsData.DidVersionChanged || openOtherSettings || openSettingsOnLaunch){
+            Logger.Log("Opening settings for an interactive launch, first run, or pending StartupAction.");
             OpenSettingsWindow(openOtherSettings);
             Utils.runOnMainThreadAfter(3000, () => HandlerWindow = new HandlerWindow(this));
         } else{
