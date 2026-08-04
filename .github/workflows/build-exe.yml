@@ -1,0 +1,77 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore .\ThreeFingerDragOnWindows.sln
+
+      - name: Publish win-x64 application
+        shell: pwsh
+        run: |
+          dotnet publish `
+            .\ThreeFingerDragOnWindows\ThreeFingerDragOnWindows.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --output .\publish\win-x64 `
+            -p:Platform=x64 `
+            -p:WindowsPackageType=None `
+            -p:EnableMsixTooling=false `
+            -p:WindowsAppSDKSelfContained=true `
+            -p:PublishSingleFile=false `
+            -p:AppxPackageSigningEnabled=false `
+            -p:GenerateAppxPackageOnBuild=false
+
+      - name: Ensure elevator EXE exists
+        shell: pwsh
+        run: |
+          $elevator = ".\publish\win-x64\ThreeFingerDragElevator.exe"
+
+          if (!(Test-Path $elevator)) {
+            dotnet publish `
+              .\ThreeFingerDragElevator\ThreeFingerDragElevator.csproj `
+              --configuration Release `
+              --runtime win-x64 `
+              --self-contained true `
+              --output .\publish\win-x64
+          }
+
+          if (!(Test-Path ".\publish\win-x64\ThreeFingerDragOnWindows.exe")) {
+            throw "Main EXE was not generated."
+          }
+
+          if (!(Test-Path $elevator)) {
+            throw "Elevator EXE was not generated."
+          }
+
+      - name: Create ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path .\publish\win-x64\* `
+            -DestinationPath .\ThreeFingerDragOnWindows-win-x64.zip `
+            -Force
+
+      - name: Upload compiled EXE package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ThreeFingerDragOnWindows-win-x64
+          path: ThreeFingerDragOnWindows-win-x64.zip
+          retention-days: 7
