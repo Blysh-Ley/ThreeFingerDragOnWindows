@@ -80,6 +80,21 @@ jobs:
           $exe = Resolve-Path ".\publish\win-x64\ThreeFingerDragOnWindows.exe"
           $publishDirectory = Split-Path $exe
           $errorLog = Join-Path $env:LOCALAPPDATA "ThreeFingerDragOnWindows\startup-error.log"
+          $startedAt = Get-Date
+
+          function Write-StartupDiagnostics {
+            if (Test-Path $errorLog) {
+              Get-Content $errorLog
+            }
+
+            Get-WinEvent `
+              -FilterHashtable @{ LogName = "Application"; StartTime = $startedAt; Level = 2 } `
+              -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -like "*ThreeFingerDragOnWindows*" } |
+              Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+              Format-List
+          }
+
           $process = Start-Process `
             -FilePath $exe `
             -ArgumentList "--smoke-test" `
@@ -94,24 +109,18 @@ jobs:
               $process.Refresh()
 
               if ($process.HasExited) {
-                if (Test-Path $errorLog) {
-                  Get-Content $errorLog
-                }
-
+                Write-StartupDiagnostics
                 throw "Published EXE exited during startup with code $($process.ExitCode)."
               }
             } while ((Get-Date) -lt $deadline -and $process.MainWindowHandle -eq 0)
 
             if ($process.MainWindowHandle -eq 0) {
-              if (Test-Path $errorLog) {
-                Get-Content $errorLog
-              }
-
+              Write-StartupDiagnostics
               throw "Published EXE started but did not create a visible settings window."
             }
 
             if (Test-Path $errorLog) {
-              Get-Content $errorLog
+              Write-StartupDiagnostics
               throw "Published EXE reported a fatal startup error."
             }
           } finally {
