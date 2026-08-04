@@ -165,7 +165,10 @@ public class SettingsData{
 
     private static string getPath(bool createIfEmpty){
 
-        var dirPath = ApplicationData.Current.LocalFolder.Path;
+        var dirPath = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    "ThreeFingerDragOnWindows"
+);
 
         var filePath = Path.Combine(dirPath, "preferences.json");
 
