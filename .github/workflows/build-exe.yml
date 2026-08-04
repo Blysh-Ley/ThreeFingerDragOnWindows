@@ -63,14 +63,15 @@ jobs:
             throw "Elevator EXE was not generated."
           }
 
-          $requiredRuntimeFiles = @(
+          $requiredPublishedFiles = @(
             ".\publish\win-x64\Microsoft.ui.xaml.dll",
-            ".\publish\win-x64\Microsoft.WindowsAppRuntime.Bootstrap.dll"
+            ".\publish\win-x64\Microsoft.WindowsAppRuntime.Bootstrap.dll",
+            ".\publish\win-x64\Assets\icon.ico"
           )
 
-          foreach ($requiredFile in $requiredRuntimeFiles) {
+          foreach ($requiredFile in $requiredPublishedFiles) {
             if (!(Test-Path $requiredFile)) {
-              throw "Required Windows App SDK runtime file is missing: $requiredFile"
+              throw "Required published file is missing: $requiredFile"
             }
           }
 
@@ -81,6 +82,10 @@ jobs:
           $publishDirectory = Split-Path $exe
           $errorLog = Join-Path $env:LOCALAPPDATA "ThreeFingerDragOnWindows\startup-error.log"
           $startedAt = Get-Date
+
+          if (Test-Path $errorLog) {
+            Remove-Item $errorLog -Force
+          }
 
           function Write-StartupDiagnostics {
             if (Test-Path $errorLog) {
@@ -117,6 +122,16 @@ jobs:
             if ($process.MainWindowHandle -eq 0) {
               Write-StartupDiagnostics
               throw "Published EXE started but did not create a visible settings window."
+            }
+
+            # HandlerWindow and its tray icon are initialized three seconds after
+            # the settings window, so keep the process alive through that path.
+            Start-Sleep -Seconds 5
+            $process.Refresh()
+
+            if ($process.HasExited) {
+              Write-StartupDiagnostics
+              throw "Published EXE exited while initializing background services with code $($process.ExitCode)."
             }
 
             if (Test-Path $errorLog) {
