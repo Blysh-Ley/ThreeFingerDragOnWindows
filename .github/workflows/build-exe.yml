@@ -74,13 +74,50 @@ jobs:
             }
           }
 
-          $appPriFiles = @(
-            ".\publish\win-x64\resources.pri",
-            ".\publish\win-x64\ThreeFingerDragOnWindows.pri"
-          ) | Where-Object { Test-Path $_ }
+      - name: Smoke test published EXE
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path ".\publish\win-x64\ThreeFingerDragOnWindows.exe"
+          $publishDirectory = Split-Path $exe
+          $errorLog = Join-Path $env:LOCALAPPDATA "ThreeFingerDragOnWindows\startup-error.log"
+          $process = Start-Process `
+            -FilePath $exe `
+            -ArgumentList "--smoke-test" `
+            -WorkingDirectory $publishDirectory `
+            -PassThru
 
-          if ($appPriFiles.Count -eq 0) {
-            throw "The app PRI/XAML resources are missing. Restore and publish must both use UnpackagedBuild=true."
+          try {
+            $deadline = (Get-Date).AddSeconds(30)
+
+            do {
+              Start-Sleep -Milliseconds 500
+              $process.Refresh()
+
+              if ($process.HasExited) {
+                if (Test-Path $errorLog) {
+                  Get-Content $errorLog
+                }
+
+                throw "Published EXE exited during startup with code $($process.ExitCode)."
+              }
+            } while ((Get-Date) -lt $deadline -and $process.MainWindowHandle -eq 0)
+
+            if ($process.MainWindowHandle -eq 0) {
+              if (Test-Path $errorLog) {
+                Get-Content $errorLog
+              }
+
+              throw "Published EXE started but did not create a visible settings window."
+            }
+
+            if (Test-Path $errorLog) {
+              Get-Content $errorLog
+              throw "Published EXE reported a fatal startup error."
+            }
+          } finally {
+            if (!$process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
           }
 
       - name: Create ZIP
